@@ -5,8 +5,8 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev" : "node src/index.js"
+    "api" : "node src/api.js",
+    "subscriber" : "node src/subscriber.js"
   },
   "author": "vc17",
   "license": "ISC",
