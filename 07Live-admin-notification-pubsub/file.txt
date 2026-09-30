@@ -1,0 +1,424 @@
+REDIS PUB/SUB
+=============
+
+1. What is Pub/Sub?
+-------------------
+
+Pub/Sub stands for Publish/Subscribe.
+
+It is a messaging pattern where:
+
+    Publisher → sends messages
+    Channel   → acts as a communication channel
+    Subscriber → receives messages
+
+The publisher does NOT directly send a message to a specific subscriber.
+
+Instead:
+
+    Publisher
+        |
+        | publish message
+        ↓
+    Redis Channel
+        |
+        | message delivered
+        ↓
+    All Subscribers of that channel
+
+
+2. Redis Pub/Sub
+----------------
+
+Redis provides a built-in Pub/Sub system.
+
+Important concepts:
+
+- Publisher: Publishes/sends messages.
+- Subscriber: Subscribes to a channel and listens for messages.
+- Channel: A named communication channel.
+- Message: The data sent through the channel.
+
+Example:
+
+    Channel: "notifications"
+
+    Publisher → "New notification!"
+                     ↓
+              Redis Channel
+                     ↓
+             Subscriber(s)
+
+
+3. Publisher
+------------
+
+The publisher connects to Redis and publishes messages.
+
+Example:
+
+    const publisher = new Redis(
+        process.env.REDIS_URL || "redis://localhost:6379"
+    );
+
+Publishing:
+
+    await publisher.publish(
+        "notifications",
+        JSON.stringify(payload)
+    );
+
+Syntax:
+
+    redis.publish(channel, message)
+
+Example:
+
+    await publisher.publish(
+        "notifications",
+        "Hello World"
+    );
+
+Redis sends the message to all currently subscribed clients
+of the "notifications" channel.
+
+
+4. Subscriber
+-------------
+
+A subscriber connects to Redis and subscribes to a channel.
+
+Example:
+
+    const subscriber = new Redis(
+        process.env.REDIS_URL || "redis://localhost:6379"
+    );
+
+Subscribe:
+
+    subscriber.subscribe("notifications", (err) => {
+        if (err) {
+            console.log("Failed to subscribe", err.message);
+            return;
+        }
+
+        console.log("Subscribed Successfully");
+    });
+
+
+5. Listening for Messages
+-------------------------
+
+After subscribing, listen for the "message" event:
+
+    subscriber.on("message", (channel, message) => {
+        console.log(
+            "Received on",
+            channel,
+            ":",
+            JSON.parse(message)
+        );
+    });
+
+The callback receives:
+
+    channel → name of the channel
+    message → message published to that channel
+
+Example:
+
+    Publisher:
+        publish("notifications", "Hello")
+
+    Subscriber receives:
+
+        channel = "notifications"
+        message = "Hello"
+
+
+6. JSON.stringify() and JSON.parse()
+------------------------------------
+
+Redis messages are generally sent as strings.
+
+If we have an object:
+
+    const payload = {
+        title: "New Notification",
+        createdAt: new Date().toISOString()
+    };
+
+Convert the object into a JSON string before publishing:
+
+    JSON.stringify(payload)
+
+Example:
+
+    await publisher.publish(
+        "notifications",
+        JSON.stringify(payload)
+    );
+
+On the subscriber side, convert the string back into an object:
+
+    JSON.parse(message)
+
+
+Flow:
+
+    JavaScript Object
+          ↓
+    JSON.stringify()
+          ↓
+    Redis message
+          ↓
+    JSON.parse()
+          ↓
+    JavaScript Object
+
+
+7. Example: Notification System
+------------------------------
+
+Publisher API:
+
+    app.post("/notifications", async (req, res) => {
+
+        const payload = {
+            title: req.body.title || "Default Title",
+            createdAt: new Date().toISOString()
+        };
+
+        await publisher.publish(
+            "notifications",
+            JSON.stringify(payload)
+        );
+
+        res.json({
+            message: "Notification sent"
+        });
+    });
+
+
+Subscriber:
+
+    subscriber.subscribe("notifications");
+
+    subscriber.on("message", (channel, message) => {
+        console.log(
+            "Received on",
+            channel,
+            ":",
+            JSON.parse(message)
+        );
+    });
+
+
+When the API is called:
+
+    POST /notifications
+
+    {
+        "title": "New Notification"
+    }
+
+
+Publisher sends:
+
+    Channel:
+        notifications
+
+    Message:
+        {
+            "title": "New Notification",
+            "createdAt": "..."
+        }
+
+
+Subscriber receives the message and can perform some action.
+
+For example:
+
+    Redis
+      ↓
+    Subscriber
+      ↓
+    Send email
+    Send push notification
+    Update another service
+    Log event
+    etc.
+
+
+8. Why use Pub/Sub?
+-------------------
+
+Pub/Sub is useful when one part of an application needs to
+notify other parts without directly communicating with them.
+
+Common use cases:
+
+- Real-time notifications
+- Chat applications
+- Live updates
+- Event-driven systems
+- Microservices communication
+- Logging/events
+- Notifications
+- Real-time dashboards
+
+
+9. Publisher and Subscriber Should Use Separate Redis Connections
+------------------------------------------------------------------
+
+In ioredis, it is common to create separate Redis clients:
+
+    const publisher = new Redis(...);
+
+    const subscriber = new Redis(...);
+
+Why?
+
+Once a Redis connection is put into subscriber mode, it is
+mainly used for receiving Pub/Sub messages.
+
+Therefore, use:
+
+    publisher → publishing messages
+    subscriber → subscribing/listening for messages
+
+
+10. Important: Pub/Sub is NOT Permanent Storage
+------------------------------------------------
+
+Redis Pub/Sub messages are not stored for later delivery.
+
+If a subscriber is not connected/subscribed when a message
+is published, it will NOT receive that message later.
+
+Example:
+
+    Publisher → message
+                    ↓
+              Redis Channel
+                    ↓
+             No subscriber
+                    ↓
+             Message is lost
+
+
+Therefore, Redis Pub/Sub is useful for real-time communication,
+not for reliable message storage.
+
+If messages must be stored and processed later, systems such as
+Redis Streams or message queues can be used.
+
+
+11. Multiple Subscribers
+------------------------
+
+Multiple subscribers can subscribe to the same channel.
+
+Example:
+
+                    notifications
+                         |
+            +------------+------------+
+            ↓            ↓            ↓
+        Subscriber 1  Subscriber 2  Subscriber 3
+
+When the publisher publishes a message, all currently
+subscribed subscribers receive it.
+
+
+12. Important Redis Commands
+----------------------------
+
+PUBLISH
+
+    PUBLISH channel message
+
+Sends a message to a channel.
+
+SUBSCRIBE
+
+    SUBSCRIBE channel
+
+Subscribes to a channel.
+
+UNSUBSCRIBE
+
+    UNSUBSCRIBE channel
+
+Stops subscribing to a channel.
+
+
+13. Simple Mental Model
+-----------------------
+
+Think of a YouTube/news notification channel:
+
+    Publisher
+       |
+       | "New video uploaded!"
+       ↓
+    Redis Channel
+       |
+       +------→ Subscriber 1
+       |
+       +------→ Subscriber 2
+       |
+       +------→ Subscriber 3
+
+
+Key idea:
+
+    Publisher does not know who the subscribers are.
+
+    Publisher → Channel → Subscribers
+
+
+14. Pub/Sub vs Normal Redis SET/GET
+-----------------------------------
+
+Normal Redis:
+
+    SET key value
+    GET key
+
+Used mainly for storing/retrieving data.
+
+Pub/Sub:
+
+    PUBLISH channel message
+    SUBSCRIBE channel
+
+Used mainly for real-time communication/events.
+
+
+NORMAL REDIS:
+
+    Client → Redis → Store/Retrieve data
+
+
+PUB/SUB:
+
+    Publisher → Redis Channel → Subscribers
+
+
+15. Key Points to Remember
+--------------------------
+
+- Pub/Sub = Publish/Subscribe messaging system.
+- Publisher sends messages.
+- Subscriber receives messages.
+- Channel connects publishers and subscribers.
+- Multiple subscribers can listen to the same channel.
+- Messages are delivered in real time.
+- Pub/Sub messages are NOT persistent.
+- A subscriber that was offline misses the message.
+- Use separate Redis connections for publisher and subscriber.
+- JSON.stringify() converts objects to strings before publishing.
+- JSON.parse() converts received JSON strings back into objects.
+- Pub/Sub is useful for notifications, events, real-time updates,
+  chat systems, and microservices communication.
